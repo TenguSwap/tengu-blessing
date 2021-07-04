@@ -47,9 +47,6 @@ contract TenguBlessingInitializable is Ownable, ReentrancyGuard {
     // The staked token
     IBEP20 public stakedToken;
 
-    // The transfer fee (in basis points) of staked token
-    uint256 public stakedTokenTransferFee;
-
     // The withdrawal interval
     uint256 public withdrawalInterval;
 
@@ -71,9 +68,9 @@ contract TenguBlessingInitializable is Ownable, ReentrancyGuard {
     event NewStartAndEndBlocks(uint256 startBlock, uint256 endBlock);
     event NewRewardPerBlock(uint256 rewardPerBlock);
     event NewPoolLimit(uint256 poolLimitPerUser);
-    event RewardsStop(uint256 blockNumber);
+    event StopReward(uint256 blockNumber);
     event Withdraw(address indexed user, uint256 amount);
-    event NewStakedTokenTransferFee(uint256 transferFee);
+    event EmergencyRewardWithdraw(uint256 amount);
     event NewWithdrawalInterval(uint256 interval);
 
     constructor() public {
@@ -88,7 +85,6 @@ contract TenguBlessingInitializable is Ownable, ReentrancyGuard {
      * @param _startBlock: start block
      * @param _bonusEndBlock: end block
      * @param _poolLimitPerUser: pool limit per user in stakedToken (if any, else 0)
-     * @param _stakedTokenTransferFee: the transfer fee of stakedToken (if any, else 0)
      * @param _withdrawalInterval: the withdrawal interval for stakedToken (if any, else 0)
      * @param _admin: admin address with ownership
      */
@@ -99,7 +95,6 @@ contract TenguBlessingInitializable is Ownable, ReentrancyGuard {
         uint256 _startBlock,
         uint256 _bonusEndBlock,
         uint256 _poolLimitPerUser,
-        uint256 _stakedTokenTransferFee,
         uint256 _withdrawalInterval,
         address _admin
     ) external {
@@ -115,7 +110,6 @@ contract TenguBlessingInitializable is Ownable, ReentrancyGuard {
         rewardPerBlock = _rewardPerBlock;
         startBlock = _startBlock;
         bonusEndBlock = _bonusEndBlock;
-        stakedTokenTransferFee = _stakedTokenTransferFee;
         withdrawalInterval = _withdrawalInterval;
 
         if (_poolLimitPerUser > 0) {
@@ -151,17 +145,17 @@ contract TenguBlessingInitializable is Ownable, ReentrancyGuard {
         if (user.amount > 0) {
             uint256 pending = user.amount.mul(accTokenPerShare).div(PRECISION_FACTOR).sub(user.rewardDebt);
             if (pending > 0) {
-                rewardToken.safeTransfer(address(msg.sender), pending);
+                _safeRewardTransfer(address(msg.sender), pending);
                 user.nextWithdrawalUntil = block.timestamp.add(withdrawalInterval);
             }
         }
 
         if (_amount > 0) {
+            // To handle correctly the transfer tax tokens w/ the pools
+            uint256 balanceBefore = stakedToken.balanceOf(address(this));
             stakedToken.safeTransferFrom(address(msg.sender), address(this), _amount);
-            if (stakedTokenTransferFee > 0) {
-                uint256 transferFee = _amount.mul(stakedTokenTransferFee).div(10000);
-                _amount = _amount.sub(transferFee);
-            }
+            _amount = stakedToken.balanceOf(address(this)).sub(balanceBefore);
+
             user.amount = user.amount.add(_amount);
 
             if (user.nextWithdrawalUntil == 0) {
@@ -193,7 +187,7 @@ contract TenguBlessingInitializable is Ownable, ReentrancyGuard {
         }
 
         if (pending > 0) {
-            rewardToken.safeTransfer(address(msg.sender), pending);
+            _safeRewardTransfer(address(msg.sender), pending);
             user.nextWithdrawalUntil = block.timestamp.add(withdrawalInterval);
         }
 
@@ -222,12 +216,23 @@ contract TenguBlessingInitializable is Ownable, ReentrancyGuard {
         emit EmergencyWithdraw(msg.sender, user.amount);
     }
 
+    // Safe reward transfer function, just in case if rounding error or emergencyRewardWithdraw causes pool to not have enough rewards.
+    function _safeRewardTransfer(address _to, uint256 _amount) internal {
+        uint256 rewardBal = rewardToken.balanceOf(address(this));
+        if (_amount > rewardBal) {
+            rewardToken.safeTransfer(_to, rewardBal);
+        } else {
+            rewardToken.safeTransfer(_to, _amount);
+        }
+    }
+
     /*
      * @notice Stop rewards
      * @dev Only callable by owner. Needs to be for emergency.
      */
     function emergencyRewardWithdraw(uint256 _amount) external onlyOwner {
-        rewardToken.safeTransfer(address(msg.sender), _amount);
+        _safeRewardTransfer(address(msg.sender), _amount);
+        emit EmergencyRewardWithdraw(_amount);
     }
 
     /**
@@ -251,6 +256,7 @@ contract TenguBlessingInitializable is Ownable, ReentrancyGuard {
      */
     function stopReward() external onlyOwner {
         bonusEndBlock = block.number;
+        emit StopReward(bonusEndBlock);
     }
 
     /*
@@ -303,23 +309,13 @@ contract TenguBlessingInitializable is Ownable, ReentrancyGuard {
     }
 
     /*
-     * @notice Update staked token transfer fee
-     * @dev Only callable by owner.
-     * @param _transferFee: the transfer fee of staked token
-     */
-    function updateStakedTokenTransferFee(uint256 _transferFee) external onlyOwner {
-        require(_transferFee < 10000, "Invalid transfer fee of staked token");
-        stakedTokenTransferFee = _transferFee;
-        emit NewStakedTokenTransferFee(_transferFee);
-    }
-
-    /*
      * @notice Update the withdrawal interval
      * @dev Only callable by owner.
      * @param _interval: the withdrawal interval for staked token in seconds
      */
     function updateWithdrawalInterval(uint256 _interval) external onlyOwner {
         require(_interval <= MAXIMUM_WITHDRAWAL_INTERVAL, "Invalid withdrawal interval");
+
         withdrawalInterval = _interval;
         emit NewWithdrawalInterval(_interval);
     }
