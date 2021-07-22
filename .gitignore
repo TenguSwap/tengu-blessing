@@ -5,6 +5,7 @@
 node_modules
 
 #Buidler files
+.env
 cache
 artifacts
 coverage
