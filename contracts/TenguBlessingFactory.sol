@@ -33,7 +33,6 @@ contract TenguBlessingFactory is Ownable {
         uint256 _startBlock,
         uint256 _bonusEndBlock,
         uint256 _poolLimitPerUser,
-        uint16 _stakedTokenTransferFee,
         uint256 _withdrawalInterval,
         address _admin
     ) external onlyOwner {
@@ -56,7 +55,6 @@ contract TenguBlessingFactory is Ownable {
             _startBlock,
             _bonusEndBlock,
             _poolLimitPerUser,
-            _stakedTokenTransferFee,
             _withdrawalInterval,
             _admin
         );
