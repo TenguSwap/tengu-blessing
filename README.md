@@ -1,6 +1,8 @@
-# TenguSwap Blessing
+# TenguSwap Farming
 
-https://tenguswap.com. Feel free to read the code. More details coming soon.
+https://tenguswap.com
+Feel free to read the code.
+You can check the doc on https://docs.tenguswap.com
 
 ## Deployed Contracts
 
